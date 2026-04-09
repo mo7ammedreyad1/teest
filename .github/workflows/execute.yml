@@ -1,0 +1,22 @@
+name: OFOQ Executor
+on:
+  workflow_dispatch:
+    inputs:
+      code:
+        description: 'Code to execute'
+        required: true
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run Agent Code
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # أضف هنا أي Secrets تانية هتحتاجها لاحقاً
+        run: |
+          echo "${{ github.event.inputs.code }}" > temp_script.js
+          node temp_script.js
