@@ -1,0 +1,86 @@
+# ================================================================
+# OFOQ Agent — Code Executor
+# يستقبل الكود من الـ Worker وينفذه، ثم يرسل النتيجة webhook
+# بسم الله الرحمن الرحيم
+# ================================================================
+
+name: OFOQ — Code Executor
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: 'Job ID'
+        required: true
+      callback_url:
+        description: 'Worker /result URL'
+        required: true
+        default: 'https://ofoq-agent.workers.dev/result'
+      code_b64:
+        description: 'Base64-encoded JS code'
+        required: true
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+
+    steps:
+      - name: ⚙️ تنفيذ الكود الديناميكي
+        run: |
+          JOB_ID="${{ github.event.inputs.job_id }}"
+          CB_URL="${{ github.event.inputs.callback_url }}"
+          CODE_B64="${{ github.event.inputs.code_b64 }}"
+
+          # فكّ تشفير الكود
+          echo "$CODE_B64" | base64 -d > /tmp/agent_code.js
+          echo "📦 الكود جاهز ($(wc -c < /tmp/agent_code.js) bytes)"
+
+          # Runner wrapper
+          cat > /tmp/runner.mjs << 'RUNNER'
+          import { readFileSync } from 'fs';
+
+          const JOB_ID = process.env.JOB_ID;
+          const CB_URL = process.env.CB_URL;
+          const code   = readFileSync('/tmp/agent_code.js', 'utf8');
+
+          let result, error;
+
+          try {
+            const AsyncFn = Object.getPrototypeOf(async function(){}).constructor;
+            const fn = new AsyncFn('process', 'fetch', 'console', `
+              ${code}
+            `);
+            result = await fn(process, globalThis.fetch, console);
+            if (result === undefined) result = { success: true, executed: true };
+          } catch(e) {
+            error = e.message || String(e);
+            console.error('[OFOQ] error:', e);
+          }
+
+          const payload = error
+            ? { job_id: JOB_ID, error }
+            : { job_id: JOB_ID, result };
+
+          try {
+            const r = await fetch(CB_URL, {
+              method:  'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body:    JSON.stringify(payload),
+            });
+            console.log('[OFOQ] callback status:', r.status);
+          } catch(e) {
+            console.error('[OFOQ] callback error:', e.message);
+          }
+
+          if (error) process.exit(1);
+          RUNNER
+
+          JOB_ID="$JOB_ID" CB_URL="$CB_URL" node /tmp/runner.mjs
+
+      - name: 📤 إرسال خطأ (عند الفشل)
+        if: failure()
+        run: |
+          curl -s -X POST "${{ github.event.inputs.callback_url }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"job_id\":\"${{ github.event.inputs.job_id }}\",\"error\":\"فشل تنفيذ GitHub Actions\"}"
