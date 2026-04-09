@@ -15,7 +15,7 @@ on:
       callback_url:
         description: 'Worker /result URL'
         required: true
-        default: 'https://ofoq-agent.workers.dev/result'
+        default: 'https://raspy-sea-c4ec.nckalo018.workers.dev/result'
       code_b64:
         description: 'Base64-encoded JS code'
         required: true
